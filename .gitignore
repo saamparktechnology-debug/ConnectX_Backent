@@ -1,0 +1,11 @@
+# Dependencies
+node_modules/
+
+# Environment variables and secrets
+.envnode_modules/
+dist/
+.env
+.env.local
+*.log
+.DS_Store
+uploads/

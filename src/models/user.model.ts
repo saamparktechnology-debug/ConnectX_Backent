@@ -26,6 +26,8 @@ export interface UserRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  terms_accepted_at: string | null;
+  channels_acknowledged_at: string | null;
 }
 
 export class UserModel {

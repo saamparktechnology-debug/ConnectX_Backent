@@ -293,6 +293,8 @@ apiRouter.get(
           walletBalance: user.wallet_balance,
           onboardingCompleted: Boolean(user.onboarding_completed_at),
           birthYear: user.birth_year,
+          termsAcceptedAt: user.terms_accepted_at,
+          channelsAcknowledgedAt: user.channels_acknowledged_at,
         },
         error: null,
       });
@@ -517,6 +519,50 @@ apiRouter.patch("/admin/config/:key", requireAdmin, async (req, res, next) => {
   }
 });
 
+apiRouter.patch(
+  "/admin/users/:id/category",
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const userId = parseInt(req.params.id, 10);
+      const { categoryTag } = req.body;
+      const allowed = [
+        "star",
+        "relationship",
+        "marriage",
+        "confidence",
+        "friendly",
+        null,
+      ];
+      if (!allowed.includes(categoryTag)) {
+        throw new AppError(400, "INVALID_CATEGORY", "Invalid category.");
+      }
+      await pool.execute(`UPDATE users SET category_tag = ? WHERE id = ?`, [
+        categoryTag,
+        userId,
+      ]);
+      res.json({ success: true, data: { userId, categoryTag }, error: null });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+apiRouter.post(
+  "/users/me/notifications/clear",
+  authenticate,
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      await pool.execute(
+        `DELETE FROM user_notifications WHERE recipient_id = ?`,
+        [req.user!.id],
+      );
+      res.json({ success: true, data: { ok: true }, error: null });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 // ── Phone change: step 1 — request OTP on new number ──────────────
 apiRouter.post(
   "/users/me/phone/request",

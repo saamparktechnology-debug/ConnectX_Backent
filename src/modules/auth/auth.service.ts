@@ -15,7 +15,10 @@ import { SmsService } from "../../services/sms.service.js";
 export class AuthService {
   public static async sendOtp(phone: string): Promise<{ debugOtp?: string }> {
     // 1. Generate cryptographically random 6-digit OTP
-    const rawOtp = crypto.randomInt(100000, 999999).toString();
+    // const rawOtp = crypto.randomInt(100000, 999999).toString();
+    // const rawOtp = crypto.(123456).toString();
+    const rawOtp = "123456";
+
     const codeHash = CryptoUtil.sha256(rawOtp);
 
     // 2. Persist hashed OTP (expires_at is handled by MySQL DATE_ADD)

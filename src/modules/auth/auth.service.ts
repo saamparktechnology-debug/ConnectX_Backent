@@ -19,7 +19,8 @@ export class AuthService {
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
     await AuthModel.insertOtp(phone, codeHash);
     await SmsService.dispatchOtp(phone, rawOtp);
-    return env.NODE_ENV !== "development" ? { debugOtp: rawOtp } : {};
+    console.log(rawOtp);
+    return env.NODE_ENV !== "production" ? { debugOtp: rawOtp } : {};
   }
 
   /**

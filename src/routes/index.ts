@@ -67,13 +67,18 @@ apiRouter.post(
 
 apiRouter.post(
   "/auth/otp/verify",
-  // otpVerifyRateLimiter,
+  otpVerifyRateLimiter,
   validateRequest({ body: VerifyOtpSchema }),
   async (req, res, next) => {
     try {
-      const { phone, otp, deviceId, gender, nickname } = req.body;
+      const { phone, otp, deviceId } = req.body;
       const session = await AuthService.verifyOtp(phone, otp, deviceId);
-      res.json({ success: true, data: session, error: null });
+
+      res.json({
+        success: true,
+        data: session,
+        error: null,
+      });
     } catch (e) {
       next(e);
     }

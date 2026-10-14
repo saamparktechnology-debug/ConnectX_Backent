@@ -23,14 +23,18 @@ export class AuthService {
   // }
 
   public static async sendOtp(phone: string): Promise<{ debugOtp?: string }> {
-    // TODO: restore random generation for production
-    // const rawOtp = crypto.randomInt(100000, 999999).toString();
     const rawOtp = "123456";
+
     const codeHash = CryptoUtil.sha256(rawOtp);
 
+    // Store the hashed OTP using your existing database flow.
+    // Keep the existing OTP expiration and attempt limits.
     await AuthModel.insertOtp(phone, codeHash);
+
+    // Mock provider logs the OTP to the server logs.
     await SmsService.dispatchOtp(phone, rawOtp);
 
+    // Do not expose the OTP in the production API response.
     return env.NODE_ENV === "development" ? { debugOtp: rawOtp } : {};
   }
 

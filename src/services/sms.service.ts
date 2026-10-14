@@ -6,7 +6,7 @@ export class SmsService {
     const provider = process.env.SMS_PROVIDER || "mock";
 
     // Mock Mode: Print OTP directly to terminal with high visibility
-    if (provider === "mock" || process.env.NODE_ENV !== "production") {
+    if (provider === "mock" || process.env.NODE_ENV !== "development") {
       logger.info(
         `\n======================================================\n` +
           `[MOCK SMS GATEWAY]\n` +

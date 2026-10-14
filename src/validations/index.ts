@@ -18,8 +18,6 @@ export const VerifyOtpSchema = z.object({
   phone: z.string().regex(E164PhoneRegex),
   otp: z.string().length(6, "OTP must be exactly 6 digits"),
   deviceId: z.string().min(1).max(128),
-  gender: z.enum(["male", "female"]).optional(),
-  nickname: z.string().min(2).max(64).optional(),
 });
 
 export const InitiateCallSchema = z.object({

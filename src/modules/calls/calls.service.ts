@@ -131,6 +131,28 @@ export class CallsService {
         secondsUntilExpiry: 60,
       });
 
+      // 6. Fire-and-forget push so receiver wakes even if app is closed
+      import("../../services/push.service.js")
+        .then(({ PushService }) => {
+          PushService.pushToUser(receiver.id, {
+            title: "Incoming Call",
+            body: `${caller.nickname} is calling you`,
+            data: {
+              type: "call:incoming",
+              sessionUuid,
+              roomId,
+              callerId: caller.id,
+              callerNickname: caller.nickname,
+              callerAvatar: caller.avatar_url,
+              secondsUntilExpiry: 60,
+            },
+            sound: "default",
+            priority: "high",
+            channelId: "incoming_call",
+          }).catch(() => {});
+        })
+        .catch(() => {});
+
       return {
         sessionUuid,
         roomId,

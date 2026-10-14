@@ -72,19 +72,59 @@ apiRouter.post(
   async (req, res, next) => {
     try {
       const { phone, otp, deviceId, gender, nickname } = req.body;
-      const session = await AuthService.verifyOtp(
-        phone,
-        otp,
-        deviceId,
-        gender,
-        nickname,
-      );
+      const session = await AuthService.verifyOtp(phone, otp, deviceId);
       res.json({ success: true, data: session, error: null });
     } catch (e) {
       next(e);
     }
   },
 );
+
+apiRouter.post("/users/onboarding/create", async (req, res, next) => {
+  try {
+    const { onboardingToken, gender, nickname, birthYear, avatarUrl } =
+      req.body as {
+        onboardingToken: string;
+        gender: "male" | "female";
+        nickname: string;
+        birthYear?: number | null;
+        avatarUrl?: string | null;
+      };
+
+    if (!onboardingToken) {
+      throw new AppError(400, "MISSING_TOKEN", "Onboarding token required.");
+    }
+    if (gender !== "male" && gender !== "female") {
+      throw new AppError(
+        400,
+        "INVALID_GENDER",
+        "Gender must be male or female.",
+      );
+    }
+    if (
+      !nickname ||
+      nickname.trim().length < 2 ||
+      nickname.trim().length > 64
+    ) {
+      throw new AppError(
+        400,
+        "INVALID_NICKNAME",
+        "Nickname must be 2–64 characters.",
+      );
+    }
+
+    const session = await AuthService.completeSignup(onboardingToken, {
+      gender,
+      nickname: nickname.trim(),
+      birthYear:
+        gender === "female" ? (birthYear ?? null) : (birthYear ?? null),
+      avatarUrl: avatarUrl ?? null,
+    });
+    res.status(201).json({ success: true, data: session, error: null });
+  } catch (e) {
+    next(e);
+  }
+});
 
 apiRouter.post("/auth/token/refresh", async (req, res, next) => {
   try {
@@ -421,6 +461,43 @@ apiRouter.post(
         },
         error: null,
       });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+apiRouter.post(
+  "/users/devices/push-token",
+  authenticate,
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const { deviceId, platform, pushToken } = req.body as {
+        deviceId: string;
+        platform: "ios" | "android";
+        pushToken: string;
+      };
+
+      if (!deviceId || !platform || !pushToken) {
+        throw new AppError(
+          400,
+          "MISSING_FIELDS",
+          "deviceId, platform, pushToken required.",
+        );
+      }
+
+      await pool.execute(
+        `INSERT INTO user_devices (user_id, device_id, platform, push_token, push_enabled)
+         VALUES (?, ?, ?, ?, 1)
+         ON DUPLICATE KEY UPDATE
+           platform = VALUES(platform),
+           push_token = VALUES(push_token),
+           push_enabled = 1,
+           last_active_at = NOW(3)`,
+        [req.user!.id, deviceId, platform, pushToken],
+      );
+
+      res.json({ success: true, data: { ok: true }, error: null });
     } catch (e) {
       next(e);
     }
@@ -2049,3 +2126,133 @@ apiRouter.get("/admin/users", requireAdmin, async (req, res, next) => {
     next(e);
   }
 });
+
+apiRouter.delete(
+  "/admin/users/:id/hard-delete",
+  requireAdmin,
+  async (req: AuthenticatedRequest, res, next) => {
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      const userId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(userId)) {
+        throw new AppError(400, "INVALID_ID", "Invalid user id.");
+      }
+
+      const [userRows]: any = await conn.execute(
+        `SELECT id, phone, uuid FROM users WHERE id = ?`,
+        [userId],
+      );
+      if (!userRows.length) {
+        throw new AppError(404, "USER_NOT_FOUND", "User not found.");
+      }
+
+      // Ledger rows are historically significant — reassign to sentinel
+      // user id 1 (system) so financial audit is preserved.
+      const SENTINEL_USER_ID = 1;
+
+      // 1. Reassign wallet_transactions to sentinel
+      await conn.execute(
+        `UPDATE wallet_transactions SET user_id = ? WHERE user_id = ?`,
+        [SENTINEL_USER_ID, userId],
+      );
+
+      // 2. Null out user references in calls_history (keep the row)
+      await conn.execute(
+        `UPDATE calls_history SET caller_id = ? WHERE caller_id = ?`,
+        [SENTINEL_USER_ID, userId],
+      );
+      await conn.execute(
+        `UPDATE calls_history SET receiver_id = ? WHERE receiver_id = ?`,
+        [SENTINEL_USER_ID, userId],
+      );
+
+      // 3. Null out ratings_reviews references
+      await conn.execute(
+        `UPDATE ratings_reviews SET rater_id = ? WHERE rater_id = ?`,
+        [SENTINEL_USER_ID, userId],
+      );
+      await conn.execute(
+        `UPDATE ratings_reviews SET ratee_id = ? WHERE ratee_id = ?`,
+        [SENTINEL_USER_ID, userId],
+      );
+
+      // 4. Cancel pending withdrawals for this user
+      await conn.execute(
+        `UPDATE withdrawals
+            SET status = 'rejected',
+                processed_at = NOW(3),
+                admin_note = 'Auto-cancelled: account hard-deleted'
+          WHERE user_id = ? AND status = 'pending'`,
+        [userId],
+      );
+      // Reassign processed withdrawals to sentinel for audit
+      await conn.execute(
+        `UPDATE withdrawals SET user_id = ? WHERE user_id = ?`,
+        [SENTINEL_USER_ID, userId],
+      );
+
+      // 5. Reassign recharges
+      await conn.execute(`UPDATE recharges SET user_id = ? WHERE user_id = ?`, [
+        SENTINEL_USER_ID,
+        userId,
+      ]);
+
+      // 6. Reassign promotions grants (or delete — grants are historic, reassign)
+      await conn.execute(
+        `UPDATE wallet_promotion_grants SET user_id = ? WHERE user_id = ?`,
+        [SENTINEL_USER_ID, userId],
+      );
+
+      // 7. Reassign notifications
+      await conn.execute(
+        `UPDATE user_notifications SET recipient_id = ? WHERE recipient_id = ?`,
+        [SENTINEL_USER_ID, userId],
+      );
+      await conn.execute(
+        `UPDATE user_notifications SET sender_id = ? WHERE sender_id = ?`,
+        [SENTINEL_USER_ID, userId],
+      );
+
+      // 8. Delete call_sessions rows tied to the user
+      await conn.execute(
+        `DELETE FROM call_broadcast_targets
+          WHERE receiver_id = ?
+             OR session_id IN (SELECT id FROM call_sessions WHERE caller_id = ? OR receiver_id = ?)`,
+        [userId, userId, userId],
+      );
+      await conn.execute(
+        `DELETE FROM call_sessions WHERE caller_id = ? OR receiver_id = ?`,
+        [userId, userId],
+      );
+
+      // 9. Delete verification submissions + devices + refresh tokens (cascades)
+      //    These have ON DELETE CASCADE from users, so they're handled below.
+
+      // 10. Delete the user (cascades to user_devices, auth_refresh_tokens,
+      //     verification_submissions, user_languages, wallet_promotion_grants)
+      await conn.execute(`DELETE FROM users WHERE id = ?`, [userId]);
+
+      await conn.execute(
+        `INSERT INTO admin_audit_logs 
+           (admin_id, action, entity_type, entity_id, before_state, after_state)
+         VALUES (?, 'USER_HARD_DELETE', 'user', ?, ?, ?)`,
+        [
+          req.user!.id,
+          String(userId),
+          JSON.stringify({ phone: userRows[0].phone, uuid: userRows[0].uuid }),
+          JSON.stringify({ deleted: true }),
+        ],
+      );
+
+      await conn.commit();
+      res.json({ success: true, data: { deleted: true }, error: null });
+    } catch (e) {
+      await conn.rollback();
+      next(e);
+    } finally {
+      conn.release();
+    }
+  },
+);

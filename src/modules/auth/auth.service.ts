@@ -12,14 +12,26 @@ import { AppError } from "../../middleware/error.middleware.js";
 import { SmsService } from "../../services/sms.service.js";
 
 export class AuthService {
+  // public static async sendOtp(phone: string): Promise<{ debugOtp?: string }> {
+  //   // const rawOtp = crypto.randomInt(100000, 999999).toString();
+  //   const rawOtp = "123456";
+  //   const codeHash = CryptoUtil.sha256(rawOtp);
+  //   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  //   await AuthModel.insertOtp(phone, codeHash);
+  //   await SmsService.dispatchOtp(phone, rawOtp);
+  //   return env.NODE_ENV !== "development" ? { debugOtp: rawOtp } : {};
+  // }
+
   public static async sendOtp(phone: string): Promise<{ debugOtp?: string }> {
+    // TODO: restore random generation for production
     // const rawOtp = crypto.randomInt(100000, 999999).toString();
     const rawOtp = "123456";
     const codeHash = CryptoUtil.sha256(rawOtp);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
     await AuthModel.insertOtp(phone, codeHash);
     await SmsService.dispatchOtp(phone, rawOtp);
-    return env.NODE_ENV !== "development" ? { debugOtp: rawOtp } : {};
+
+    return env.NODE_ENV === "development" ? { debugOtp: rawOtp } : {};
   }
 
   /**

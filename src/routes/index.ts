@@ -46,6 +46,7 @@ import { env } from "../config/env.js"; // for PUBLIC_BASE_URL (see below)
 import { AppError } from "../middleware/error.middleware.js";
 import { AuthModel } from "../models/auth.model.js";
 import { uploadAvatar } from "../middleware/avatar-upload.middleware.js";
+import { TargetsService } from "../modules/targets/targets.service.js";
 export const apiRouter = Router();
 
 // ============================================================================
@@ -349,6 +350,29 @@ apiRouter.get(
   },
 );
 
+apiRouter.get(
+  "/users/me/target",
+  authenticate,
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const year = req.query.year
+        ? parseInt(req.query.year as string, 10)
+        : undefined;
+      const month = req.query.month
+        ? parseInt(req.query.month as string, 10)
+        : undefined;
+      const target = await TargetsService.getMyTarget(
+        req.user!.id,
+        year,
+        month,
+      );
+      res.json({ success: true, data: target, error: null });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 apiRouter.patch(
   "/users/me",
   authenticate,
@@ -471,6 +495,85 @@ apiRouter.post(
     }
   },
 );
+
+// Admin: create/update a female target
+apiRouter.post(
+  "/admin/targets",
+  requireAdmin,
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const {
+        userId,
+        periodYear,
+        periodMonth,
+        targetMinutes,
+        prizeAmount,
+        notes,
+      } = req.body;
+      const result = await TargetsService.upsertTarget(
+        req.user!.id,
+        parseInt(String(userId), 10),
+        parseInt(String(periodYear), 10),
+        parseInt(String(periodMonth), 10),
+        parseInt(String(targetMinutes), 10),
+        parseFloat(String(prizeAmount)),
+        notes,
+      );
+      res.status(201).json({ success: true, data: result, error: null });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// Admin: list all targets for a period
+apiRouter.get("/admin/targets", requireAdmin, async (req, res, next) => {
+  try {
+    const now = new Date();
+    const year = parseInt(req.query.year as string, 10) || now.getUTCFullYear();
+    const month =
+      parseInt(req.query.month as string, 10) || now.getUTCMonth() + 1;
+    const list = await TargetsService.listByPeriod(year, month);
+    res.json({
+      success: true,
+      data: { targets: list, year, month },
+      error: null,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: delete a target (only if not yet awarded)
+apiRouter.delete(
+  "/admin/targets/:id",
+  requireAdmin,
+  async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const result = await TargetsService.deleteTarget(
+        req.user!.id,
+        parseInt(req.params.id, 10),
+      );
+      res.json({ success: true, data: result, error: null });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
+// Admin: manually trigger award for a past month
+apiRouter.post("/admin/targets/award", requireAdmin, async (req, res, next) => {
+  try {
+    const { year, month } = req.body;
+    const result = await TargetsService.awardCompletedTargets(
+      parseInt(String(year), 10),
+      parseInt(String(month), 10),
+    );
+    res.json({ success: true, data: result, error: null });
+  } catch (e) {
+    next(e);
+  }
+});
 
 apiRouter.post(
   "/users/devices/push-token",
@@ -1203,10 +1306,14 @@ apiRouter.get(
            ch.duration_seconds, ch.billed_minutes,
            ch.amount_deducted, ch.amount_earned,
            ch.status,
-           u_c.nickname AS caller_nickname,
-           u_c.avatar_url AS caller_avatar,
-           u_r.nickname AS receiver_nickname,
-           u_r.avatar_url AS receiver_avatar,
+u_c.nickname       AS caller_nickname,
+u_c.avatar_url     AS caller_avatar,
+u_c.uuid           AS caller_uuid,
+u_c.is_online      AS caller_online,
+u_r.nickname       AS receiver_nickname,
+u_r.avatar_url     AS receiver_avatar,
+u_r.uuid           AS receiver_uuid,
+u_r.is_online      AS receiver_online,
            rr.rating AS my_rating,
            rr.id AS my_rating_id
          FROM calls_history ch
@@ -1236,14 +1343,22 @@ apiRouter.get(
           : r.caller_nickname;
         const peerAvatar = isOutgoing ? r.receiver_avatar : r.caller_avatar;
         const peerId = isOutgoing ? r.receiver_id : r.caller_id;
+        const peerUuid = isOutgoing ? r.receiver_uuid : r.caller_uuid;
+        const peerIsOnline = Boolean(
+          isOutgoing ? r.receiver_online : r.caller_online,
+        );
+        const peerIsFemale = !isOutgoing; // female only when receiver of my outgoing call
 
         return {
           id: r.id,
           uuid: r.uuid,
           direction: isOutgoing ? "outgoing" : "incoming",
           peerId,
+          peerUuid,
           peerNickname: peerNickname ?? "Unknown",
           peerAvatar,
+          peerIsOnline,
+          peerIsFemale,
           startTime: r.start_time,
           endTime: r.end_time,
           durationSeconds: r.duration_seconds,

@@ -9,6 +9,7 @@ import { errorMiddleware } from "./middleware/error.middleware.js";
 import { apiRouter } from "./routes/index.js";
 import { startCallSweeperDaemon } from "./jobs/call-sweeper.job.js";
 import { initSocketServer } from "./socket/socket.server.js";
+import { startTargetsAwardDaemon } from "./jobs/targets-award.job.js";
 
 const app = express();
 
@@ -82,6 +83,7 @@ app.use(errorMiddleware);
 async function startServer() {
   await verifyDatabaseConnection();
   startCallSweeperDaemon();
+  startTargetsAwardDaemon();
 
   // Create HTTP server (instead of app.listen) so Socket.IO can share it
   const server = http.createServer(app);

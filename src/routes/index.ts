@@ -1441,25 +1441,38 @@ apiRouter.post(
   },
 );
 
-apiRouter.post("/recharges/payu/callback", async (req, res, next) => {
+apiRouter.post("/recharges/payu/callback", async (req, res) => {
+  console.log("════════════════════════════════════════");
+  console.log("[payu-callback] RECEIVED at", new Date().toISOString());
+  console.log("[payu-callback] content-type:", req.headers["content-type"]);
+  console.log("[payu-callback] body:", JSON.stringify(req.body, null, 2));
+  console.log("════════════════════════════════════════");
+
   try {
-    console.log("════════════════════════════════════════");
-    console.log("[payu-callback] RECEIVED at", new Date().toISOString());
-    console.log("[payu-callback] method:", req.method);
-    console.log("[payu-callback] content-type:", req.headers["content-type"]);
-    console.log("[payu-callback] body:", JSON.stringify(req.body, null, 2));
-    console.log("════════════════════════════════════════");
-
     await RechargesService.processCallback(req.body);
-
     console.log("[payu-callback] ✅ processCallback SUCCESS");
-    res.status(200).send("CALLBACK_PROCESSED_SUCCESSFULLY");
   } catch (e: any) {
     console.log("[payu-callback] ❌ ERROR:", e.message);
-    console.log("[payu-callback] code:", e.code);
     console.log("[payu-callback] stack:", e.stack);
-    next(e);
+    // Don't `next(e)` — we still want to return a closable page to the WebView
   }
+
+  // Return HTML that signals the WebView to close.
+  // Plain text breaks iOS/Android WebViews sometimes; HTML is safer.
+  res.status(200).send(`
+    <!doctype html>
+    <html>
+      <head><meta charset="utf-8"/><title>Payment</title></head>
+      <body>
+        <p>CALLBACK_PROCESSED_SUCCESSFULLY</p>
+        <script>
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage('CALLBACK_PROCESSED_SUCCESSFULLY');
+          }
+        </script>
+      </body>
+    </html>
+  `);
 });
 
 apiRouter.get(

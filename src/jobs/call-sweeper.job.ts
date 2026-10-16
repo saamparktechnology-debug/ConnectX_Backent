@@ -29,11 +29,35 @@ export function startCallSweeperDaemon(): void {
           const currentMinutesBilled = Math.ceil(elapsedSeconds / 60);
           const costAccrued = currentMinutesBilled * 3.0;
 
+          // Low balance warning: emit once per session when balance < 2 minutes' worth
+          const TWO_MINUTES_COST = 6.0;
+          if (
+            currentBal >= costAccrued &&
+            currentBal < costAccrued + TWO_MINUTES_COST
+          ) {
+            const { emitToUser } = await import("../socket/socket.server.js");
+            emitToUser(call.caller_id, "call:low-balance", {
+              sessionUuid: call.uuid,
+              balance: currentBal.toFixed(2),
+              remainingSeconds: Math.max(
+                0,
+                Math.floor((currentBal / 3.0) * 60),
+              ),
+            });
+          }
+
           if (currentBal < costAccrued) {
             logger.warn(
               { sessionUuid: call.uuid, callerId: call.caller_id },
               "Terminating active call: Balance depleted",
             );
+            const { emitToUser } = await import("../socket/socket.server.js");
+            emitToUser(call.caller_id, "call:balance-exhausted", {
+              sessionUuid: call.uuid,
+            });
+            emitToUser(call.receiver_id, "call:balance-exhausted", {
+              sessionUuid: call.uuid,
+            });
             await CallsService.endCall(call.uuid, "balance_exhausted");
           }
         }

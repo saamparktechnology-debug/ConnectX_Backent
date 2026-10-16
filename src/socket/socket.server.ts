@@ -85,11 +85,47 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // Ack so the client knows it's connected
     socket.emit("connected", { userId: user.id, at: Date.now() });
 
-    socket.on("disconnect", (reason) => {
+    socket.on("disconnect", async (reason) => {
       logger.info(
         { userId: user.id, socketId: socket.id, reason },
         "[socket] user disconnected",
       );
+
+      // If this user has an active call, end it
+      try {
+        const { pool } = await import("../config/database.js");
+        const [rows]: any = await pool.execute(
+          `SELECT uuid FROM call_sessions
+        WHERE (caller_id = ? OR receiver_id = ?)
+          AND status IN ('initiated','ringing','accepted')
+        LIMIT 5`,
+          [user.id, user.id],
+        );
+
+        if (rows.length > 0) {
+          const { CallsService } =
+            await import("../modules/calls/calls.service.js");
+          for (const r of rows) {
+            logger.info(
+              { userId: user.id, sessionUuid: r.uuid },
+              "[socket] user disconnected mid-call — ending session",
+            );
+            await CallsService.endCall(r.uuid, "network_drop").catch(
+              (err: any) => {
+                logger.warn(
+                  { err, sessionUuid: r.uuid },
+                  "failed to end session",
+                );
+              },
+            );
+          }
+        }
+      } catch (err) {
+        logger.warn(
+          { err, userId: user.id },
+          "[socket] post-disconnect cleanup failed",
+        );
+      }
     });
   });
 

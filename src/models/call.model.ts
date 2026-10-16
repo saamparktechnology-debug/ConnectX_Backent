@@ -151,10 +151,17 @@ export class CallModel {
   }
 
   public static async findActiveOngoingSessions(): Promise<
-    Array<{ id: number; uuid: string; caller_id: number; accepted_at: string }>
+    Array<{
+      id: number;
+      uuid: string;
+      caller_id: number;
+      receiver_id: number;
+      accepted_at: string;
+    }>
   > {
     const [rows]: any = await pool.execute(
-      `SELECT id, uuid, caller_id, accepted_at FROM call_sessions WHERE status = 'accepted'`,
+      `SELECT id, uuid, caller_id, receiver_id, accepted_at
+       FROM call_sessions WHERE status = 'accepted'`,
     );
     return rows;
   }
